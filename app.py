@@ -72,12 +72,18 @@ if uploaded_file is not None:
             st.metric("💾 File Size", f"{uploaded_file.size / 1024:.2f} KB")
             st.metric("File Size", f"{uploaded_file.size / 1024:.2f} KB")
         
-        # Extract vessel codes from "Vessel Code : Name" column
-        vessel_column = "Vessel Code : Name"
-        if vessel_column in df.columns:
+        # Extract vessel codes from column containing "Unnamed" or "Coke Name"
+        vessel_column = None
+        for col in df.columns:
+            if "Unnamed" in col or "Coke Name" in col:
+                vessel_column = col
+                break
+        
+        if vessel_column and vessel_column in df.columns:
             vessel_options = ["None"] + df[vessel_column].dropna().unique().tolist()
         else:
             vessel_options = ["None"]
+            vessel_column = None
         
         # Blend Selection Table - Step 1
         st.markdown('<div class="step-header">⚗️ Step 1: Blend Selection</div>', unsafe_allow_html=True)
@@ -173,13 +179,13 @@ if uploaded_file is not None:
         
         st.markdown('<div class="success-box">✅ Composition at 100% - Ready to analyze</div>', unsafe_allow_html=True)
         
-        # Get numeric columns for selection
-        numeric_columns = df.select_dtypes(include=['number']).columns.tolist()
+        # Get all columns except the vessel column for selection
+        all_columns = [col for col in df.columns if col != vessel_column]
         
         selected_properties = st.multiselect(
             "🔍 Select properties to display in blend table:",
-            options=numeric_columns,
-            default=numeric_columns[:6] if len(numeric_columns) >= 6 else numeric_columns,
+            options=all_columns,
+            default=all_columns[:6] if len(all_columns) >= 6 else all_columns,
             key="properties_multiselect"
         )
         
@@ -198,7 +204,10 @@ if uploaded_file is not None:
                 
                 if vessel_name != "None":
                     # Find the row in the original dataframe
-                    vessel_row = df[df["Vessel Code : Name"] == vessel_name]
+                    if vessel_column:
+                        vessel_row = df[df[vessel_column] == vessel_name]
+                    else:
+                        vessel_row = pd.DataFrame()
                     
                     if not vessel_row.empty:
                         row_data = {"Vessel": vessel_name, "Ratio (%)": blend_item["percentage"]}
@@ -210,11 +219,25 @@ if uploaded_file is not None:
                                 # Handle numeric values
                                 if pd.notna(original_value):
                                     try:
+                                        # Try to convert to float directly
                                         numeric_value = float(original_value)
                                         weighted_value = ratio * numeric_value
                                         row_data[prop] = weighted_value
                                     except (ValueError, TypeError):
-                                        row_data[prop] = None
+                                        # If direct conversion fails, try to extract numbers from text
+                                        import re
+                                        value_str = str(original_value)
+                                        # Extract first number found in the string
+                                        numbers = re.findall(r'-?\d+\.?\d*', value_str)
+                                        if numbers:
+                                            try:
+                                                numeric_value = float(numbers[0])
+                                                weighted_value = ratio * numeric_value
+                                                row_data[prop] = weighted_value
+                                            except (ValueError, TypeError):
+                                                row_data[prop] = None
+                                        else:
+                                            row_data[prop] = None
                                 else:
                                     row_data[prop] = None
                         
@@ -353,41 +376,41 @@ if uploaded_file is not None:
         
         st.divider()
         
-        # Step 4: Final CSN Score Calculation
-        st.markdown('<div class="step-header">🎯 Step 4: Final CSN Score</div>', unsafe_allow_html=True)
-        st.markdown("*Combine indices into a final Coke Strength Number (CSN) using custom formula*")
+        # Step 4: Final CSR Score Calculation
+        st.markdown('<div class="step-header">🎯 Step 4: Final CSR Score</div>', unsafe_allow_html=True)
+        st.markdown("*Combine indices into a final Coke Strength Ratio (CSR) using custom formula*")
         
         if st.session_state.indices:
-            st.markdown("### 📐 CSN Calculation Formula")
+            st.markdown("### 📐 CSR Calculation Formula")
             
             # Create a reference of available indices
             index_refs = " | ".join([f"{item['name']}" for item in st.session_state.indices])
             st.info(f"**Available Indices:** {index_refs}")
             
             # Create table showing index values for reference
-            csn_ref_data = []
+            csr_ref_data = []
             for item in st.session_state.indices:
-                csn_ref_data.append({
+                csr_ref_data.append({
                     "Index": item["name"],
                     "Formula": item["formula"],
                     "Value": f"{item['value']:.4f}"
                 })
-            st.dataframe(pd.DataFrame(csn_ref_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(csr_ref_data), use_container_width=True, hide_index=True)
             
-            st.markdown("**Enter your custom CSN formula:**")
+            st.markdown("**Enter your custom CSR formula:**")
             
-            custom_csn_formula = st.text_area(
-                "CSN Formula (use index names in curly braces):",
+            custom_csr_formula = st.text_area(
+                "CSR Formula (use index names in curly braces):",
                 placeholder="Example: {Index1} * 0.6 + {Index2} * 0.4",
                 height=100,
-                key="custom_csn_formula_input"
+                key="custom_csr_formula_input"
             )
             
-            if st.button("🧮 Calculate CSN Score", key="calc_csn_btn", use_container_width=True):
-                if custom_csn_formula:
+            if st.button("🧮 Calculate CSR Score", key="calc_csr_btn", use_container_width=True):
+                if custom_csr_formula:
                     try:
                         # Replace index names with their values
-                        formula_eval = custom_csn_formula
+                        formula_eval = custom_csr_formula
                         for item in st.session_state.indices:
                             formula_eval = formula_eval.replace(
                                 "{" + item['name'] + "}",
@@ -395,11 +418,11 @@ if uploaded_file is not None:
                             )
                         
                         # Evaluate the formula
-                        csn_value = eval(formula_eval)
+                        csr_value = eval(formula_eval)
                         
-                        st.session_state.csn_score = {
-                            "value": csn_value,
-                            "formula": custom_csn_formula
+                        st.session_state.csr_score = {
+                            "value": csr_value,
+                            "formula": custom_csr_formula
                         }
                         
                     except Exception as e:
@@ -407,37 +430,37 @@ if uploaded_file is not None:
                 else:
                     st.warning("Please enter a formula")
             
-            # Display CSN Score if calculated
-            if "csn_score" in st.session_state:
-                csn_value = st.session_state.csn_score["value"]
-                csn_formula = st.session_state.csn_score["formula"]
+            # Display CSR Score if calculated
+            if "csr_score" in st.session_state:
+                csr_value = st.session_state.csr_score["value"]
+                csr_formula = st.session_state.csr_score["formula"]
                 
-                # Display CSN Score with gradient background
+                # Display CSR Score with gradient background
                 st.markdown(f"""
                 <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); padding: 2.5rem; border-radius: 1rem; color: white; text-align: center; margin: 2rem 0;">
-                    <h2>🏆 Final CSN Score</h2>
-                    <h1 style="font-size: 3.5rem; margin: 0.5rem 0; font-weight: bold;">{csn_value:.4f}</h1>
-                    <p style="font-size: 1rem; opacity: 0.9;">Formula: <code>{csn_formula}</code></p>
+                    <h2>🏆 Final CSR Score</h2>
+                    <h1 style="font-size: 3.5rem; margin: 0.5rem 0; font-weight: bold;">{csr_value:.4f}</h1>
+                    <p style="font-size: 1rem; opacity: 0.9;">Formula: <code>{csr_formula}</code></p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Download CSN report
+                # Download CSR report
                 report_data = {
-                    "Component": [item['name'] for item in st.session_state.indices] + ["FINAL CSN SCORE"],
-                    "Value": [f"{item['value']:.4f}" for item in st.session_state.indices] + [f"{csn_value:.4f}"]
+                    "Component": [item['name'] for item in st.session_state.indices] + ["FINAL CSR SCORE"],
+                    "Value": [f"{item['value']:.4f}" for item in st.session_state.indices] + [f"{csr_value:.4f}"]
                 }
                 report_df = pd.DataFrame(report_data)
                 
                 csv = report_df.to_csv(index=False)
                 st.download_button(
-                    label="📥 Download CSN Report",
+                    label="📥 Download CSR Report",
                     data=csv,
-                    file_name="csn_report.csv",
+                    file_name="csr_report.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
         else:
-            st.info("👈 Create at least one index in Step 3 to calculate CSN score")
+            st.info("👈 Create at least one index in Step 3 to calculate CSR score")
         
         # Download processed data
         csv = df.to_csv(index=False)
