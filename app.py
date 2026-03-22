@@ -75,7 +75,7 @@ if uploaded_file is not None:
         # Extract vessel codes from column containing "Unnamed" or "Coke Name"
         vessel_column = None
         for col in df.columns:
-            if "Unnamed" in col or "Coke Name" in col or "Coal Name":
+            if "Unnamed" in col or "Coke Name" in col or "Coal Name" in col:
                 vessel_column = col
                 break
         
